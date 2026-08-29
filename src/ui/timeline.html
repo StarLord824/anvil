@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Anvil — action ledger</title>
+<style>
+  body { background: #0b0d10; color: #d7dce2; font: 13px/1.5 ui-monospace, monospace; margin: 0; padding: 24px; }
+  h1 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: #7d8794; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .card { border: 1px solid #1d2430; border-radius: 8px; padding: 12px; }
+  .row { border-bottom: 1px solid #151b24; padding: 6px 0; display: flex; gap: 8px; align-items: baseline; }
+  button { background: #1d2430; color: #d7dce2; border: 0; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+  .badge { padding: 1px 6px; border-radius: 999px; font-size: 11px; }
+  .committed { background: #10331f; color: #6ee7a0; }
+  .refused { background: #3a2a10; color: #f5c069; }
+  .ts { color: #566070; }
+</style>
+<h1>Anvil — reversible workspace, guarded egress</h1>
+<div class="cols">
+  <div class="card"><h1>Snapshots</h1><div id="snaps"></div></div>
+  <div class="card"><h1>Tool calls</h1><div id="calls"></div></div>
+  <div class="card"><h1>Irreversible effects</h1><div id="effects"></div></div>
+</div>
+<script type="module">
+  const el = (id) => document.getElementById(id);
+  const rollback = async (id) => {
+    await fetch("/api/rollback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    load();
+  };
+  async function load() {
+    const [{ snapshots }, { records }] = await Promise.all([
+      fetch("/api/snapshots").then((r) => r.json()),
+      fetch("/api/ledger").then((r) => r.json()),
+    ]);
+    el("snaps").innerHTML = "";
+    for (const snap of snapshots.slice().reverse()) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<span class="ts">${snap.ts.slice(11, 19)}</span><span>${snap.label}</span>`;
+      const button = document.createElement("button");
+      button.textContent = "Rollback";
+      button.onclick = () => rollback(snap.id);
+      row.append(button);
+      el("snaps").append(row);
+    }
+    el("calls").innerHTML = records
+      .filter((r) => r.kind === "call")
+      .slice(-40)
+      .reverse()
+      .map((r) => `<div class="row"><span class="ts">${r.ts.slice(11, 19)}</span><span>${r.tool}</span></div>`)
+      .join("");
+    el("effects").innerHTML = records
+      .filter((r) => r.kind === "effect")
+      .reverse()
+      .map(
+        (r) =>
+          `<div class="row"><span class="ts">${r.ts.slice(11, 19)}</span><span>${r.effect}</span>` +
+          `<span class="badge ${r.status === "committed" ? "committed" : "refused"}">${r.status}</span>` +
+          `${r.ref ? `<a href="${r.ref}" style="color:#6ee7a0">PR</a>` : ""}</div>`,
+      )
+      .join("");
+  }
+  new EventSource("/api/events").onmessage = () => load();
+  load();
+</script>
