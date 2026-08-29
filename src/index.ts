@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig } from "./config";
+import { RestGitHubClient } from "./github";
 import { Ledger } from "./ledger/ledger";
 import { registerTools } from "./tools/registry";
 import { DockerSandbox } from "./sandbox/docker";
@@ -32,6 +33,18 @@ const sandbox = new DockerSandbox({
   container: config.sandboxContainer,
   hostDir: config.sandboxHostDir,
 });
+const openPr = {
+  ledger,
+  repo: config.githubRepo,
+  pushBranch: async (branch: string) => {
+    const result = await sandbox.run(
+      `git checkout -B ${branch} && git add -A && git -c user.email=anvil@local -c user.name=Anvil commit -m "anvil: ${branch}" && git push -u origin ${branch}`,
+      120_000,
+    );
+    if (result.exitCode !== 0) throw new Error(`push failed: ${result.stderr.trim()}`);
+  },
+  github: new RestGitHubClient(config.githubToken),
+};
 const listeners = new Set<(event: string) => void>();
 const onEvent = (name: string, payload: unknown) => {
   const frame = `data: ${JSON.stringify({ name, payload, ts: new Date().toISOString() })}\n\n`;
@@ -51,7 +64,7 @@ app.use("/mcp", (req, res, next) => {
 
 app.post("/mcp", async (req, res) => {
   const server = new McpServer({ name: "anvil", version: "0.1.0" });
-  registerTools(server, { ws, ledger, sandbox, onEvent });
+  registerTools(server, { ws, ledger, sandbox, openPr, onEvent });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();
@@ -69,4 +82,4 @@ app.listen(config.port, () => {
   console.log(`anvil listening on http://127.0.0.1:${config.port}/mcp`);
 });
 
-export { app, ledger, listeners, onEvent, sandbox, ws };
+export { app, ledger, listeners, onEvent, openPr, sandbox, ws };
