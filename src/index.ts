@@ -3,11 +3,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config";
 import { RestGitHubClient } from "./github";
 import { Ledger } from "./ledger/ledger";
 import { registerTools } from "./tools/registry";
 import { DockerSandbox } from "./sandbox/docker";
+import { buildApi } from "./ui/api";
 import { LocalWorkspace } from "./workspace/local";
 
 // Lightweight .env loader — no dependency
@@ -74,12 +76,47 @@ app.post("/mcp", async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 });
 
+const api = buildApi({ ledger, ws, listeners });
+
+app.get("/api/events", (req, res) => {
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  const listener = (frame: string) => res.write(frame);
+  listeners.add(listener);
+  req.on("close", () => listeners.delete(listener));
+});
+
+for (const route of ["/api/ledger", "/api/snapshots"] as const) {
+  app.get(route, async (_req, res) => {
+    const response = await api.request(route);
+    res.status(response.status).json(await response.json());
+  });
+}
+
+app.post("/api/rollback", async (req, res) => {
+  const response = await api.request("/api/rollback", {
+    method: "POST",
+    body: JSON.stringify(req.body),
+    headers: { "content-type": "application/json" },
+  });
+  const payload = await response.json();
+  onEvent("restore", payload);
+  res.status(response.status).json(payload);
+});
+
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/", (_req, res) => {
+  res.sendFile(fileURLToPath(new URL("./ui/timeline.html", import.meta.url)));
 });
 
 app.listen(config.port, () => {
   console.log(`anvil listening on http://127.0.0.1:${config.port}/mcp`);
 });
 
-export { app, ledger, listeners, onEvent, openPr, sandbox, ws };
+export { api, app, ledger, listeners, onEvent, openPr, sandbox, ws };
