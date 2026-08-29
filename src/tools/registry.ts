@@ -7,12 +7,14 @@ import type { WorkspaceBackend } from "../workspace/backend";
 import { editTool } from "./edit";
 import { execTool } from "./exec";
 import { grepTool } from "./grep";
+import { openPrTool, type OpenPrDeps } from "./openPr";
 import { readTool } from "./read";
 
 export interface ToolDeps {
   ws: WorkspaceBackend;
   ledger: Ledger;
   sandbox: DockerSandbox;
+  openPr: OpenPrDeps;
   onEvent: (name: string, payload: unknown) => void;
 }
 
@@ -114,6 +116,33 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    "open_pr",
+    {
+      description:
+        "IRREVERSIBLE. Commit the workspace branch, push it to GitHub, and open a pull request. Requires human approval. Refuses if this exact pull request was already opened, even after a workspace rollback.",
+      inputSchema: {
+        title: z.string(),
+        body: z.string(),
+        branch: z.string(),
+        base: z.string().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    },
+    async (args) => {
+      await deps.ledger.recordCall("open_pr", digest(args));
+      try {
+        const result = await openPrTool(deps.openPr, args);
+        deps.onEvent("effect", { tool: "open_pr", status: "committed", text: result.text });
+        return { content: [{ type: "text", text: result.text }] };
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        deps.onEvent("effect", { tool: "open_pr", status: "refused", text });
+        return { isError: true, content: [{ type: "text", text }] };
+      }
     },
   );
 }
