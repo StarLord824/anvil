@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadConfig } from "./config";
 import { Ledger } from "./ledger/ledger";
 import { registerTools } from "./tools/registry";
+import { DockerSandbox } from "./sandbox/docker";
 import { LocalWorkspace } from "./workspace/local";
 
 // Lightweight .env loader — no dependency
@@ -26,6 +27,11 @@ if (existsSync(envPath) && !process.env.ANVIL_TOKEN) {
 const config = loadConfig();
 const ws = new LocalWorkspace(config.workspaceDir);
 const ledger = new Ledger(join(config.workspaceDir, ".anvil", "ledger.jsonl"));
+const sandbox = new DockerSandbox({
+  image: config.sandboxImage,
+  container: config.sandboxContainer,
+  hostDir: config.sandboxHostDir,
+});
 const listeners = new Set<(event: string) => void>();
 const onEvent = (name: string, payload: unknown) => {
   const frame = `data: ${JSON.stringify({ name, payload, ts: new Date().toISOString() })}\n\n`;
@@ -45,7 +51,7 @@ app.use("/mcp", (req, res, next) => {
 
 app.post("/mcp", async (req, res) => {
   const server = new McpServer({ name: "anvil", version: "0.1.0" });
-  registerTools(server, { ws, ledger, onEvent });
+  registerTools(server, { ws, ledger, sandbox, onEvent });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();
@@ -63,4 +69,4 @@ app.listen(config.port, () => {
   console.log(`anvil listening on http://127.0.0.1:${config.port}/mcp`);
 });
 
-export { app, ledger, listeners, onEvent, ws };
+export { app, ledger, listeners, onEvent, sandbox, ws };
