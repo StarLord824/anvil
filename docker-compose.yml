@@ -1,0 +1,16 @@
+services:
+  anvil:
+    build: .
+    ports: ["8791:8791"]
+    environment:
+      ANVIL_PORT: "8791"
+      ANVIL_TOKEN: ${ANVIL_TOKEN}
+      WORKSPACE_DIR: /workspace
+      SANDBOX_IMAGE: anvil-sandbox:latest
+      SANDBOX_HOST_DIR: ${PWD}/workspaces/demo
+      SANDBOX_CONTAINER: anvil-sbx-demo
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_REPO: ${GITHUB_REPO}
+    volumes:
+      - ./workspaces/demo:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock

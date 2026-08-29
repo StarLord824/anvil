@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",
-    "test": "bun test",
+    "test": "bun test tests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
