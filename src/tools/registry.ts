@@ -2,14 +2,17 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Ledger } from "../ledger/ledger";
+import type { DockerSandbox } from "../sandbox/docker";
 import type { WorkspaceBackend } from "../workspace/backend";
 import { editTool } from "./edit";
+import { execTool } from "./exec";
 import { grepTool } from "./grep";
 import { readTool } from "./read";
 
 export interface ToolDeps {
   ws: WorkspaceBackend;
   ledger: Ledger;
+  sandbox: DockerSandbox;
   onEvent: (name: string, payload: unknown) => void;
 }
 
@@ -66,6 +69,23 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       const result = await editTool(deps.ws, args);
       deps.onEvent("call", { tool: "edit", path: args.path, snapshotId });
       return { content: [{ type: "text", text: `${result.text} (snapshot ${snapshotId})` }] };
+    },
+  );
+
+  server.registerTool(
+    "exec",
+    {
+      description:
+        "Run a shell command inside the workspace sandbox container. A snapshot is taken automatically first.",
+      inputSchema: { command: z.string(), timeout_s: z.number().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async (args) => {
+      const snapshotId = await snapshotBefore(deps, `exec ${args.command.slice(0, 40)}`);
+      await deps.ledger.recordCall("exec", digest(args), snapshotId);
+      const result = await execTool(deps.sandbox, args);
+      deps.onEvent("call", { tool: "exec", command: args.command, snapshotId });
+      return { content: [{ type: "text", text: result.text }] };
     },
   );
 
